@@ -21,7 +21,7 @@ namespace lemon {
   template <typename GR, typename CAP, typename TOL>
 #else
   template <typename GR,
-            typename CAP = typename GR::template ArcMap<int>,
+            typename CAP = typename GR::template EdgeMap<int>,
             typename TOL = Tolerance<typename CAP::Value> >
 #endif
 
@@ -41,18 +41,23 @@ namespace lemon {
 
         TEMPLATE_GRAPH_TYPEDEFS(ListGraph);
 
-        const Graph& _graph;
+        const ListGraph& _graph;
         const CapacityMap& _capacity;
-        const CutMap& _cutmap;
+        typedef typename ListGraph::template NodeMap<bool> MinCutMap;
+        const MinCutMap* _cutmap;
 
-        std::vector<Node>& _subset;
+        const std::vector<Node>& _subset;
         std::map<Node, int32_t> _labels;
-        std::map<int, std::vector<Node>& > _colorings:
-        std::set<Edge> _color_mincuts;
+        std::map<int, std::vector<Node>& > _colorings;
+        // we need some struct of saving the logV colorings
+        // typedef typename ListGraph::template EdgeMap<Color> ColorMap;
+        // ColorMap _color_mincuts;
         
     public:
-    IsolatingCut(const Graph& graph, const CapacityMap& capacity, const vector<Node>& subset) :
-        _graph(graph), _capacity(&capacity), _subset(subset), _color_mincuts() {}
+    IsolatingCut(const ListGraph& graph, const CapacityMap& capacity, const vector<Node>& subset) :
+        _graph(graph), _capacity(capacity), _subset(subset) {
+            init();
+        }
 
     ~IsolatingCut() {
         if (_graph) {
@@ -62,7 +67,7 @@ namespace lemon {
             delete _capacity;
         }
         if (_subset) {
-            delete subset;
+            delete _subset;
         }
         if (_labels) {
             delete _labels;
@@ -70,42 +75,37 @@ namespace lemon {
         if (_colorings) {
             delete _colorings;
         }
-        if (_color_minuts) {
-            delete _color_mincuts;
-        }
     }
  
     private:
         void initLabels(std::vector<Node>& _subset) {
-            int len = _subset.size()
+            int len = _subset.size();
             for (int i = 0; i < len; ++i) {
-                _labels[_subset[i]] = i
+                _labels[_subset[i]] = i;
             }
         }
-        ListGraph& copyGraph() {
-            ListGraph graphCopy;
-            GraphCopy<Graph, ListGraph> cg(_graph, graphCopy);
-            Graph::NodeMap<ListGraph::Node> nr(_graph);
-            cg.nodeRef(nr);
-            Graph::EdgeMap<int> oemap(_graph);
-            ListGraph::EdgeMap<int> nemap(graphCopy);
-            cg.edgeMap(oemap, nemap);
+        void copyGraph(ListGraph& new_graph, ListGraph& orig_graph) {
+            GraphCopy<ListGraph, ListGraph> cg(orig_graph, new_graph);
             cg.run();
-            return &graphCopy;
         }
-        void colorContraction(ListGraph& graph) {
-            for (int color : [0, 1]) {
+        std::list<Node> colorContraction(ListGraph& graph) {
+            std::list<Node> st;
+            std::vector<int> colors = {0, 1};
+            for (const auto& color : colors) {
                 std::vector<int, Node>& component = _colorings[color];
+                st.push_back(component[0]);
                 for (int i = 1; i < component.size(); ++i) {
                     graph.contract(component[0], component[i]);
                 }
             }
+            return st;
         }
         void colorGraph(ListGraph& graph, int i) {
-            for (auto& v : _subset) {
+            for (const auto& v : _subset) {
                 _colorings[findColor(_labels[v], i)].push_back(v);
             }
         }
+
         int findColor(int label, int i) {
             return (label >> i) & 1;
         }
@@ -116,13 +116,24 @@ namespace lemon {
             pf.minCutMap(_cutmap);
         }
 
+        void findIthMinCut(ListGraph& g, int i) {
+            colorGraph(g, i);
+            std::list<Node> st = colorContraction(g);
+            findMincuts(g, st[0], st[1]);
+        }
+
     public:
         void init() {
             initLabels(_subset);
         }
 
         void run() {
-
+            int len = _subset.size();
+            for (int i = 0; i < len; ++i) {
+                ListGraph newGraph;
+                copyGraph(newGraph, _graph);
+                findIthMinCut(newGraph, i);
+            }
         }
 
     }; //class IsolatingCut
