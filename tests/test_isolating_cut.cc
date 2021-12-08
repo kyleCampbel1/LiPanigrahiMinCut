@@ -107,9 +107,9 @@ void testPhase1(ListGraph& g, ListGraph::EdgeMap<int>& map, vector<Node>& subset
   IsoCut ic(g, map, subset);
   ic.init();
   ic.runPhase1();
-  IsoCut::MinCutMap* connectedComponent = IsoCut::Traits::createCutMap(g);
+  IsoCut::MinCutMapF* connectedComponent = IsoCut::Traits::createCutMapF(ic.getFilterSubset());
   for (auto& v : subset) {
-    ic.runFindUv(v, *connectedComponent);
+    ic.runFindUv1(v, *connectedComponent);
     bool successPhase1 = true;
     for (auto& u : subset) {
       if (u != v && (*connectedComponent)[u] == true) {
@@ -326,17 +326,26 @@ void testSmallGraphs() {
   ListGraph::EdgeMap<int> map1(g1);
   TestGraphs test(&g1, &map1);
   test.createBicycleWheel(64);
-  for (int s : {4, 10, 20}) {
-    benchMarkLPTest(64, s, g1, map1);
+  int mincut1 = INT_MAX;
+  for (int s : {4, 10, 20, 40}) {
+    mincut1 = min(mincut1, benchMarkLPTest(64, s, g1, map1));
   }
+  int ni1 = benchMarkNITest(64, g1, map1);
+
+  cout << "Success: " << (ni1 == mincut1) << endl;
+  cout << "NI: " << ni1 << " | LP: " << mincut1 << endl;
 
   ListGraph g5;
   ListGraph::EdgeMap<int> map5(g5);
   TestGraphs test5(&g5, &map5);
   test5.createRandomGraph(64, 0.5);
-  for (int s : {4, 10, 20}) {
-    benchMarkLPTest(64, s, g5, map5);
+  int mincut2 = INT_MAX;
+  for (int s : {4, 10, 20, 40}) {
+    mincut2 = min(mincut2, benchMarkLPTest(64, s, g5, map5));
   }
+  int ni2 = benchMarkNITest(64, g5, map5);
+  cout << "Success: " << (ni2 == mincut2) << endl;
+  cout << "NI: " << ni2 << " | LP: " << mincut2 << endl;
 }
 
 void copyGraphAndCapacity(ListGraph& newGraph, CapacityMap& newMap, ListGraph& oldGraph, CapacityMap& oldMap) {
@@ -504,8 +513,8 @@ int main() {
   // testPhase1Static();
   // recreateSTCut();
   // testSetupRandomGraph();
-  // testSmallGraphs();
-  runBenchmarks();
+  testSmallGraphs();
+  // runBenchmarks();
   // testSetupWheel(65);
   // copyGraphFindSTCut();
 

@@ -8,6 +8,7 @@
 
 #include <lemon/list_graph.h>
 #include <lemon/concepts/graph.h>
+#include <lemon/adaptors.h>
 #include <lemon/concepts/graph_components.h>
 #include <lemon/bits/graph_extender.h>
 #include <lemon/concepts/bpgraph.h>
@@ -35,7 +36,6 @@ namespace lemon {
       return new MinCutMap(graph);
     }
 
-
 #ifdef DOXYGEN
     typedef GR::EdgeMap<Value> MinCutEdgeMap;
 #else
@@ -43,7 +43,24 @@ namespace lemon {
 #endif
 
     static MinCutEdgeMap* createCutEdgeMap(const ListGraph& graph) {
-      return new MinCutEdgeMap(graph);
+      return new MinCutEdgeMap(graph, true);
+    }
+
+typedef class FilterEdges<ListGraph, MinCutEdgeMap> FilterGraph;
+
+    static FilterGraph* createFilterGraph(ListGraph& graph, MinCutEdgeMap& filter) {
+       return new FilterGraph(graph, filter);
+    }
+
+
+#ifdef DOXYGEN
+    typedef GR::NodeMap<Value> MinCutMapF;
+#else
+    typedef typename FilterGraph::template NodeMap<bool> MinCutMapF;
+#endif
+
+    static MinCutMapF* createCutMapF(const FilterGraph& graph) {
+      return new MinCutMapF(graph);
     }
 };
 
@@ -67,7 +84,11 @@ namespace lemon {
 
         typedef typename Traits::MinCutMap MinCutMap;
 
+        typedef typename Traits::MinCutMapF MinCutMapF;
+
         typedef typename Traits::MinCutEdgeMap MinCutEdgeMap;
+
+        typedef typename Traits::FilterGraph FilterGraph;
        
     private:
 
@@ -91,6 +112,7 @@ namespace lemon {
         delete _allCutsUnion;
         delete _capMap;
         delete _graph;
+        delete fe;
 
     }
     
@@ -106,6 +128,8 @@ namespace lemon {
 
         MinCutEdgeMap* _allCutsUnion;
         CapacityMap* _capMap;
+
+        FilterGraph* fe;
 
        int minimalCutValue = INT_MAX;
 
@@ -124,6 +148,7 @@ namespace lemon {
             _allCutsUnion = TR::createCutEdgeMap(*_graph);
             _s = (*_graph).addNode();
             _t = (*_graph).addNode();
+            fe = TR::createFilterGraph(*_graph, *_allCutsUnion);
         }
 
         // removes the edges included in U C_i
@@ -196,6 +221,12 @@ namespace lemon {
             throw runtime_error("Contraction failed");
         }
 
+        void findUv1(const Node& v, MinCutMapF& compMap, const FilterGraph& isolatedCuts) {
+            Dfs<FilterGraph> dfs(isolatedCuts); // could pass this in as arg because it gets called often
+            dfs.reachedMap(compMap);
+            dfs.run(v);
+        }
+
         // performs dfs to set compMap to the nodes reachable from v in G\ U C_i
         void findUv(const Node& v, MinCutMap& compMap, const ListGraph& isolatedCuts) {
             Dfs<ListGraph> dfs(isolatedCuts); // could pass this in as arg because it gets called often
@@ -213,14 +244,14 @@ namespace lemon {
         }
 
         // G\ U C_i is found, this finds isolating cuts
-        void parallelContractMinCut(ListGraph& isolatedComponents) {
+        void parallelContractMinCut(FilterGraph& isolatedComponents) {
             // in parallel loop -- TODO
             // check runtime of this loop
             for (const auto& v : *_subset){
-                MinCutMap* connectedComponent = TR::createCutMap(*_ogGraph);  // O(N)
+                MinCutMapF* connectedComponent = TR::createCutMapF(isolatedComponents);  // O(N)
                 // finds connected component that contains v in graph
                 // that is pruned to exclude the isolating cuts
-                findUv(v, *connectedComponent, isolatedComponents);  // O(|Uv(n+e)|)
+                findUv1(v, *connectedComponent, isolatedComponents);  // O(|Uv(n+e)|)
 
                 ListGraph cgraph;
                 ListGraph::EdgeMap<int> cmap(cgraph);
@@ -267,7 +298,7 @@ namespace lemon {
                     if (u == _s || v == _t) {
                         throw logic_error("DEBUG Edge should not be in cut");
                     }
-                    (*_allCutsUnion)[e] = true; 
+                    (*_allCutsUnion)[e] = false; 
                 }
             }
         }
@@ -326,8 +357,9 @@ namespace lemon {
             // copyGraph(*_trimGraph, *_ogGraph);
             (*_graph).erase(_s);
             (*_graph).erase(_t);
-            removeCuts(*_graph); // O(E)
-            parallelContractMinCut(*_graph);  // O(|V|*|N^2e^0.5)
+            // removeCuts(); // O(E)
+            // FilterGraph fe(*_graph, *_allCutsUnion);
+            parallelContractMinCut(*fe);  // O(|V|*|N^2e^0.5)
         }
 
         int getMinCut() {
@@ -359,17 +391,21 @@ namespace lemon {
             }
             (*_graph).erase(_s);
             (*_graph).erase(_t);
-            removeCuts(*_graph);
+            //removeCuts();
         }
 
         // must call in order init(), runPhase1(), then runPhase2()
         void runPhase2() {
-            parallelContractMinCut(*_graph);
+            parallelContractMinCut(*fe);
         }
 
         // must call in order init(), runPhase1()
         void runFindUv(Node& v, MinCutMap& connectedComponent) {
             findUv(v, connectedComponent, *_graph);
+        }
+
+        void runFindUv1(Node& v, MinCutMapF& connectedComponent) {
+            findUv1(v, connectedComponent, *fe);
         }
 
         std::vector<int> runContractAndCut(Node& v, ListGraph& cgraph, MinCutMap& connectedComponent) {
@@ -381,6 +417,10 @@ namespace lemon {
             std::vector<int> nIds;
             getCutNodeIds(nIds, *connectedComponent, *_ogGraph); 
             return nIds;
+        }
+
+        FilterGraph& getFilterSubset() {
+            return *fe;
         }
 
     }; //class IsolatingCut
