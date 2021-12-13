@@ -150,6 +150,7 @@ void testFindCut() {
   for (NodeIt n(g); n != INVALID; ++n) {
     cout << (*nm)[n] << endl;
   }
+  delete nm;
 
   ListGraph g1;
   ListGraph::EdgeMap<int> map1(g1);
@@ -167,6 +168,7 @@ void testFindCut() {
   for (NodeIt n(g); n != INVALID; ++n) {
     cout << (*nm1)[n] << endl;
   }
+  delete nm;
 }
 
 void testRun() {
@@ -333,24 +335,24 @@ void runBenchmarks() {
   TestGraphs test3(&g3, &map3);
   test3.createBicycleWheel(100000);
   int ni3 = benchMarkNITest(100000, g3, map3);
-  int ho3 = benchMarkHOTest(100000, g3, map3);
+  // int ho3 = benchMarkHOTest(100000, g3, map3);
   int lpm3 = INT_MAX;
   for (int s : {500, 5000, 10000, 40000}) {
     lpm3 = min(benchMarkLPTest(100000, s, g3, map3), lpm3);
   }
-  cout << "NI | HO | LP " << ni3 << " | " << ho3 << " | " << lpm3 << endl;
+  cout << "NI | HO | LP " << ni3 << " | " << "NA" << " | " << lpm3 << endl;
 
   ListGraph g7;
   ListGraph::EdgeMap<int> map7(g7);
   TestGraphs test7(&g7, &map7);
   test7.createRandomGraph(10000, 0.75);
   int ni7 = benchMarkNITest(10000, g7, map7);
-  int ho7 = benchMarkHOTest(10000, g7, map7);
+  // int ho7 = benchMarkHOTest(10000, g7, map7);
   int lpm7 = INT_MAX;
   for (int s : {100, 500, 2500, 5000}) {
     lpm7 = min(benchMarkLPTest(10000, s, g7, map7), lpm7);
   }
-  cout << "NI | HO | LP " << ni7 << " | " << ho7 << " | " << lpm7 << endl;
+  cout << "NI | HO | LP " << ni7 << " | " << "NA" << " | " << lpm7 << endl;
 }
 
 
@@ -503,15 +505,15 @@ void testSTComponents() {
 
 int main() {
   // testInitLabels();
-  testRun();
-  testFindCut();
+  // testRun();
+  // testFindCut();
   // testSTCut();
   // testSTComponents();
   // recreateSTCut();
   // testSetupRandomGraph();
-  testSmallGraphs();
+  // testSmallGraphs();
   runBenchmarks();
-  // testSetupWheel(65);
+  // // testSetupWheel(65);
   // copyGraphFindSTCut();
   // testSpanComponents();
   return 0;

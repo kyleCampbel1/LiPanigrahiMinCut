@@ -129,6 +129,7 @@ typedef class Preflow<FilterNodes, CapacityMap> Maxflow;
         delete _cap_map;
         delete _graph_w;
         delete fe;
+        delete _cut_map;
 
     }
     
@@ -260,6 +261,7 @@ typedef class Preflow<FilterNodes, CapacityMap> Maxflow;
 
 
                 (*_graph_w).erase(t); 
+                delete pf;
             }
             delete connected_component;
             delete fn;
