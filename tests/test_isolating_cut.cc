@@ -6,6 +6,7 @@
 #include <lemon/hao_orlin.h>
 #include <lemon/nagamochi_ibaraki.h>
 #include <vector>
+#include <unordered_set>
 #include <assert.h>
 #include <iostream>
 #include <stdio.h>
@@ -107,9 +108,9 @@ void testPhase1(ListGraph& g, ListGraph::EdgeMap<int>& map, vector<Node>& subset
   IsoCut ic(g, map, subset);
   ic.init();
   ic.runPhase1();
-  IsoCut::MinCutMapF* connectedComponent = IsoCut::Traits::createCutMapF(ic.getFilterSubset());
+  IsoCut::NodeCutMapF* connectedComponent = IsoCut::Traits::createCutMapF(ic.getFilterSubset());
   for (auto& v : subset) {
-    ic.runFindUv1(v, *connectedComponent);
+    ic.runFindUv(v, *connectedComponent);
     bool successPhase1 = true;
     for (auto& u : subset) {
       if (u != v && (*connectedComponent)[u] == true) {
@@ -130,21 +131,42 @@ void testConstructor() {
   vector<Node> subset = {g.nodeFromId(2), g.nodeFromId(4), g.nodeFromId(7)};
   IsoCut ic(g, map, subset);
   ic.init();
-  // assert (ic.getMaxWeight > 0);
 }
 
-void testUVcomponent() {
+void testFindCut() {
   ListGraph g;
   ListGraph::EdgeMap<int> map(g);
   TestGraphs test(&g, &map);
   test.createBicycleWheel(16);
-  vector<Node> subset = {g.nodeFromId(7), g.nodeFromId(4), g.nodeFromId(12)};
+  vector<Node> subset = {g.nodeFromId(5), g.nodeFromId(8), g.nodeFromId(11)};
+  testPhase1(g, map, subset);
   IsoCut ic(g, map, subset);
   ic.init();
-  ic.runPhase1();
-  IsoCut::MinCutMap* cutmap = IsoCut::Traits::createCutMap(g);
-  ic.runFindUv(subset[0], *cutmap);
-  delete cutmap;
+  ic.run();
+  int mincut = ic.minCutValue();
+  cout << mincut << endl;
+  IsoCut::NodeCutMap* nm = IsoCut::Traits::createCutMap(g);
+  ic.minCutMap(*nm);
+  for (NodeIt n(g); n != INVALID; ++n) {
+    cout << (*nm)[n] << endl;
+  }
+
+  ListGraph g1;
+  ListGraph::EdgeMap<int> map1(g1);
+  TestGraphs test1(&g1, &map1);
+  test1.createRandomGraph(42, 0.5);
+  vector<Node> subset1 = {g1.nodeFromId(16), g1.nodeFromId(40), g1.nodeFromId(30), g1.nodeFromId(28), g1.nodeFromId(12)};
+  testPhase1(g1, map1, subset1);
+  IsoCut ic1(g1, map1, subset1);
+  ic1.init();
+  ic1.run();
+  int mincut1 = ic1.minCutValue();
+  cout << mincut1 << endl;
+  IsoCut::NodeCutMap* nm1 = IsoCut::Traits::createCutMap(g1);
+  ic.minCutMap(*nm1);
+  for (NodeIt n(g); n != INVALID; ++n) {
+    cout << (*nm1)[n] << endl;
+  }
 }
 
 void testRun() {
@@ -157,7 +179,7 @@ void testRun() {
   IsoCut ic(g, map, subset);
   ic.init();
   ic.run();
-  int mincut = ic.getMinCut();
+  int mincut = ic.minCutValue();
   cout << mincut << endl;
 
   ListGraph g1;
@@ -169,7 +191,7 @@ void testRun() {
   IsoCut ic1(g1, map1, subset1);
   ic1.init();
   ic1.run();
-  int mincut1 = ic1.getMinCut();
+  int mincut1 = ic1.minCutValue();
   cout << mincut1 << endl;
 
   ListGraph g2;
@@ -181,7 +203,7 @@ void testRun() {
   IsoCut ic2(g2, map2, subset2);
   ic2.init();
   ic2.run();
-  int mincut2 = ic2.getMinCut();
+  int mincut2 = ic2.minCutValue();
   cout << mincut2 << endl;
 
   ListGraph g3;
@@ -193,7 +215,7 @@ void testRun() {
   IsoCut ic3(g3, map3, subset3);
   ic3.init();
   ic3.run();
-  int mincut3 = ic3.getMinCut();
+  int mincut3 = ic3.minCutValue();
   cout << mincut3 << endl;
 
 };
@@ -211,17 +233,15 @@ int benchMarkLPTest(const int n, const int subsetSize, ListGraph& graph, Capacit
   vector<Node> subset(subsetSize);
   for (int i = 0; i < subsetSize; ++i) {
     subset[i] = graph.nodeFromId(nodes[i]);
-    // cout << "subset[i] (i=" << i << " node num: " << nodes[i] << endl;
   }
   auto start = chrono::high_resolution_clock::now();
   IsoCut ic(graph, capacityMap, subset);
   ic.init();
   ic.run();
-  // vector<LiPanigrahiDefaultTraits<ListGraph, ListGraph::EdgeMap<int>>::SV> isolatingCuts = ic.getIsolatingCuts();
   auto stop = chrono::high_resolution_clock::now();
   chrono::duration<double, milli> runtime_ms = stop-start;
   cout << "Li Panigrahi exec. time (ms): " << runtime_ms.count() << " Nodes:" << n << " Subset Size" << subsetSize << endl;
-  return ic.getMinCut();
+  return ic.minCutValue();
 }
 
 int benchMarkHOTest(const int n, ListGraph& graph, CapacityMap& capacityMap) {
@@ -267,7 +287,7 @@ void runBenchmarks() {
   int ni2 = benchMarkNITest(10000, g2, map2);
   int ho2 = benchMarkHOTest(10000, g2, map2);
   int lpm2 = INT_MAX;
-  for (int s : {10, 50, 100, 250, 500, 1000, 2000, 4000, 5000, 7500}) {
+  for (int s : {50, 250, 1000, 4000, 5000, 7500}) {
     lpm2 = min(benchMarkLPTest(10000, s, g2, map2), lpm2);
   }
   cout << "NI | HO | LP " << ni2 << " | " << ho2 << " | " << lpm2 << endl;
@@ -279,7 +299,7 @@ void runBenchmarks() {
   int ni4 = benchMarkNITest(1024, g4, map4);
   int ho4 = benchMarkHOTest(1024, g4, map4);
   int lpm4 = INT_MAX;
-  for (int s : {12, 100, 200, 500, 700, 800}) {
+  for (int s : {50, 250, 500, 750}) {
     lpm4 = min(benchMarkLPTest(1024, s, g4, map4), lpm4);
   }
   cout << "NI | HO | LP " << ni4 << " | " << ho4 << " | " << lpm4 << endl;
@@ -287,24 +307,26 @@ void runBenchmarks() {
   ListGraph g5;
   ListGraph::EdgeMap<int> map5(g5);
   TestGraphs test5(&g5, &map5);
-  test5.createRandomGraph(10000, 0.75);
-  int ni5 = benchMarkNITest(10000, g5, map5);
-  int ho5 = benchMarkHOTest(10000, g5, map5);
+  test5.createRandomGraph(1024, 0.75);
+  int ni5 = benchMarkNITest(1024, g5, map5);
+  int ho5 = benchMarkHOTest(1024, g5, map5);
   int lpm5 = INT_MAX;
-  for (int s : {12, 100, 500, 700, 1000}) {
+  for (int s : {12, 100, 500, 700}) {
     lpm5 = min(benchMarkLPTest(1024, s, g5, map5), lpm5);
   }
+  cout << "NI | HO | LP " << ni5 << " | " << ho5 << " | " << lpm5 << endl;
 
   ListGraph g6;
   ListGraph::EdgeMap<int> map6(g6);
   TestGraphs test6(&g6, &map6);
-  test6.createRandomGraph(10000, 0.25);
-  int ni6 = benchMarkNITest(10000, g4, map4);
-  int ho6 = benchMarkHOTest(10000, g4, map4);
+  test6.createRandomGraph(1024, 0.25);
+  int ni6 = benchMarkNITest(1024, g4, map4);
+  int ho6 = benchMarkHOTest(1024, g4, map4);
   int lpm6 = INT_MAX;
-  for (int s : {12, 100, 500, 700, 1000}) {
-    lpm6 = min(benchMarkLPTest(10000, s, g4, map4), lpm6);
+  for (int s : {12, 100, 500, 700}) {
+    lpm6 = min(benchMarkLPTest(1024, s, g4, map4), lpm6);
   }
+  cout << "NI | HO | LP " << ni6 << " | " << ho6 << " | " << lpm6 << endl;
   
   ListGraph g3;
   ListGraph::EdgeMap<int> map3(g3);
@@ -313,10 +335,22 @@ void runBenchmarks() {
   int ni3 = benchMarkNITest(100000, g3, map3);
   int ho3 = benchMarkHOTest(100000, g3, map3);
   int lpm3 = INT_MAX;
-  for (int s : {10, 50, 100, 250, 500, 1000, 5000, 10000, 25000, 50000, 70000}) {
+  for (int s : {500, 5000, 10000, 40000}) {
     lpm3 = min(benchMarkLPTest(100000, s, g3, map3), lpm3);
   }
   cout << "NI | HO | LP " << ni3 << " | " << ho3 << " | " << lpm3 << endl;
+
+  ListGraph g7;
+  ListGraph::EdgeMap<int> map7(g7);
+  TestGraphs test7(&g7, &map7);
+  test7.createRandomGraph(10000, 0.75);
+  int ni7 = benchMarkNITest(10000, g7, map7);
+  int ho7 = benchMarkHOTest(10000, g7, map7);
+  int lpm7 = INT_MAX;
+  for (int s : {100, 500, 2500, 5000}) {
+    lpm7 = min(benchMarkLPTest(10000, s, g7, map7), lpm7);
+  }
+  cout << "NI | HO | LP " << ni7 << " | " << ho7 << " | " << lpm7 << endl;
 }
 
 
@@ -324,11 +358,11 @@ void runBenchmarks() {
 void testSmallGraphs() {
   ListGraph g1;
   ListGraph::EdgeMap<int> map1(g1);
-  TestGraphs test(&g1, &map1);
-  test.createBicycleWheel(64);
+  TestGraphs test1(&g1, &map1);
+  test1.createBicycleWheel(64);
   int mincut1 = INT_MAX;
   for (int s : {4, 10, 20, 40}) {
-    mincut1 = min(mincut1, benchMarkLPTest(64, s, g1, map1));
+    mincut1 = benchMarkLPTest(64, s, g1, map1);
   }
   int ni1 = benchMarkNITest(64, g1, map1);
 
@@ -380,11 +414,6 @@ void copyGraphFindSTCut() {
 
   // copying graph
   ListGraph copy;
-  // copyGraph(copy, g);
-  // int numEdges = 0;
-  // for (EdgeIt e(g); e != INVALID; ++e) {
-  //     ++numEdges;
-  // }
   ListGraph::EdgeMap<int> copymap(copy);
   copyGraphAndCapacity(copy, copymap, g, map);
 
@@ -397,17 +426,14 @@ void copyGraphFindSTCut() {
   ListGraph::Node t1 = copy.addNode();
   copymap[copy.addEdge(t1, copy.nodeFromId(1))] = 31;
   copymap[copy.addEdge(s1, copy.nodeFromId(5))] = 31;
-  // test.createBicycleWheel(64);
-  // vector<Node> subset = {g.nodeFromId(1), g.nodeFromId(5)};
-  // ListGraph c1, c2;
-  // IsoCut ic(g, map, subset, c1, c2);
-  IsoCut::Traits::MinCutMap* cutMap = new IsoCut::Traits::MinCutMap(g);
+
+  IsoCut::Traits::NodeCutMap* cutMap = new IsoCut::Traits::NodeCutMap(g);
   Preflow<ListGraph, CapacityMap> pf(g, map, s, t);
   pf.run();
   pf.minCutMap(*cutMap);
   int cutval = pf.flowValue();
 
-  IsoCut::Traits::MinCutMap* cutMap1 = new IsoCut::Traits::MinCutMap(copy);
+  IsoCut::Traits::NodeCutMap* cutMap1 = new IsoCut::Traits::NodeCutMap(copy);
   Preflow<ListGraph, CapacityMap> pf1(copy, copymap, s1, t1);
   pf1.run();
   pf1.minCutMap(*cutMap1);
@@ -417,11 +443,6 @@ void copyGraphFindSTCut() {
   cout << "Success: " << success << endl;
   cout << "first cut: " << cutval << endl;
   cout << "copy cut: " << cutval1 << endl;
-
-  // for (int i = 0; i < g.maxEdgeId(); ++i) {
-  //   cout << "Edge " << i << " u: " << g.u(g.edgeFromId(i)) << " v: " << g.v(g.edgeFromId(i)) << endl;
-  //   cout << "Edge i " << i << " u: " << copy.u(copy.edgeFromId(i)) << " v: " << copy.v(copy.edgeFromId(i)) << endl;
-  // }
 
   delete cutMap1;
   delete cutMap;
@@ -439,7 +460,7 @@ void testSTCut() {
   map[g.addEdge(t, g.nodeFromId(1))] = 31;
   map[g.addEdge(s, g.nodeFromId(5))] = 31;
 
-  IsoCut::Traits::MinCutMap* cutMap = new IsoCut::Traits::MinCutMap(g);
+  IsoCut::Traits::NodeCutMap* cutMap = new IsoCut::Traits::NodeCutMap(g);
   Preflow<ListGraph, CapacityMap> pf(g, map, s, t);
   pf.run();
   pf.minCutMap(*cutMap);
@@ -449,10 +470,10 @@ void testSTCut() {
       Node u = g.u(e);
       Node v = g.v(e);
       if ((*cutMap)[u] != (*cutMap)[v]) {
-          g.erase(e); // problem is right here!!! doesn't get correct edges
+          g.erase(e);
       }
   }
-  IsoCut::Traits::MinCutMap* dcutmap = new IsoCut::Traits::MinCutMap(g);
+  IsoCut::Traits::NodeCutMap* dcutmap = new IsoCut::Traits::NodeCutMap(g);
   Dfs<ListGraph> dfs(g);
   dfs.reachedMap(*dcutmap);
   dfs.run(g.nodeFromId(1));
@@ -480,43 +501,18 @@ void testSTComponents() {
   cout << mincutval1 << endl;
 }
 
-void testPhase1Static(){
-  ListGraph g;
-  ListGraph::EdgeMap<int> map(g);
-  TestGraphs test(&g, &map);
-  test.createBicycleWheel(8);
-  vector<Node> subset = {g.nodeFromId(1), g.nodeFromId(5)};
-  IsoCut ic(g, map, subset);
-  ic.init();
-  ic.runPhase1();
-  IsoCut::MinCutMap* connectedComponent = IsoCut::Traits::createCutMap(g);
-  for (auto& v : subset) {
-    ic.runFindUv(v, *connectedComponent);
-    bool successPhase1 = true;
-    for (auto& u : subset) {
-      if (u != v && (*connectedComponent)[u] == true) {
-        cout <<  "v = " << g.id(v) << ". node misclassified: " << g.id(u) << endl;
-        successPhase1 = false;
-      }
-    }
-    cout << "phase 1 success: " << successPhase1 << endl;
-  }
-  delete connectedComponent;
-}
-
 int main() {
   // testInitLabels();
-  // testUVcomponent();
   testRun();
+  testFindCut();
   // testSTCut();
   // testSTComponents();
-  // testPhase1Static();
   // recreateSTCut();
   // testSetupRandomGraph();
   testSmallGraphs();
-  // runBenchmarks();
+  runBenchmarks();
   // testSetupWheel(65);
   // copyGraphFindSTCut();
-
+  // testSpanComponents();
   return 0;
 };

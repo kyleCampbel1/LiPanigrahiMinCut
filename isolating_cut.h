@@ -28,46 +28,53 @@ namespace lemon {
     typedef CAP CapacityMap;
 
 #ifdef DOXYGEN
-    typedef GR::NodeMap<Value> MinCutMap;
+    typedef GR::NodeMap<Value> NodeCutMap;
 #else
-    typedef typename ListGraph::template NodeMap<bool> MinCutMap;
+    typedef typename ListGraph::template NodeMap<bool> NodeCutMap;
 #endif
 
-    static MinCutMap* createCutMap(const ListGraph& graph) {
-      return new MinCutMap(graph);
+    static NodeCutMap* createCutMap(const ListGraph& graph) {
+      return new NodeCutMap(graph);
     }
 
 #ifdef DOXYGEN
-    typedef GR::EdgeMap<Value> MinCutEdgeMap;
+    typedef GR::EdgeMap<Value> EdgeCutMap;
 #else
-    typedef typename ListGraph::template EdgeMap<bool> MinCutEdgeMap;
+    typedef typename ListGraph::template EdgeMap<bool> EdgeCutMap;
 #endif
 
-    static MinCutEdgeMap* createCutEdgeMap(const ListGraph& graph) {
-      return new MinCutEdgeMap(graph, true);
+    static EdgeCutMap* createCutEdgeMap(const ListGraph& graph) {
+      return new EdgeCutMap(graph, true);
     }
 
-typedef class FilterEdges<ListGraph, MinCutEdgeMap> FilterEdges;
+typedef class FilterEdges<ListGraph, EdgeCutMap> FilterEdges;
 
-    static FilterEdges* createFilterEdges(ListGraph& graph, MinCutEdgeMap& filter) {
+    static FilterEdges* createFilterEdges(ListGraph& graph, EdgeCutMap& filter) {
        return new FilterEdges(graph, filter);
     }
 
 #ifdef DOXYGEN
-    typedef GR::NodeMap<Value> MinCutMapF;
+    typedef GR::NodeMap<Value> NodeCutMapF;
 #else
-    typedef typename FilterEdges::template NodeMap<bool> MinCutMapF;
+    typedef typename FilterEdges::template NodeMap<bool> NodeCutMapF;
 #endif
 
-    static MinCutMapF* createCutMapF(const FilterEdges& graph) {
-      return new MinCutMapF(graph);
+    static NodeCutMapF* createCutMapF(const FilterEdges& graph) {
+      return new NodeCutMapF(graph);
     }
 
-typedef FilterNodes<ListGraph, MinCutMapF> FilterNodes;
+typedef FilterNodes<ListGraph, NodeCutMapF> FilterNodes;
 
-    static FilterNodes* createFilterNodes(ListGraph& graph, MinCutMapF& filter) {
+    static FilterNodes* createFilterNodes(ListGraph& graph, NodeCutMapF& filter) {
         return new FilterNodes(graph, filter);
     }
+
+typedef class Preflow<FilterNodes, CapacityMap> Maxflow;
+
+    static Maxflow* createPreflow(FilterNodes& graph, CapacityMap& map, const typename ListGraph::Node& s, const typename ListGraph::Node& t) {
+        return new Preflow<FilterNodes, CapacityMap>(graph, map, s, t);
+    }
+
 };
 
 
@@ -87,15 +94,17 @@ typedef FilterNodes<ListGraph, MinCutMapF> FilterNodes;
         /// The capacity map type of the algorithm
         typedef ListGraph::EdgeMap<int> CapacityMap;
 
-        typedef typename Traits::MinCutMap MinCutMap;
+        typedef typename Traits::NodeCutMap NodeCutMap;
 
-        typedef typename Traits::MinCutMapF MinCutMapF;
+        typedef typename Traits::NodeCutMapF NodeCutMapF;
 
-        typedef typename Traits::MinCutEdgeMap MinCutEdgeMap;
+        typedef typename Traits::EdgeCutMap EdgeCutMap;
 
         typedef typename Traits::FilterEdges FilterEdges;
 
         typedef typename Traits::FilterNodes FilterNodes;
+
+        typedef typename Traits::Maxflow Maxflow;
        
     private:
 
@@ -112,35 +121,36 @@ typedef FilterNodes<ListGraph, MinCutMapF> FilterNodes;
     // @capacity the EdgeMap for weights of edges in graph
     // @subset the list of nodes to compute the minimum isolating cut between
     IsolatingCut(const ListGraph& graph, CapacityMap& capacity, vector<Node>& subset):
-        _capacity(&capacity), _subset(&subset), _ogGraph(&graph), _maxWeight(graphSumWeight(capacity))
+        _capacity(&capacity), _subset(&subset), _graph(&graph), _max_weight(graphSumWeight(capacity))
     {}
 
     ~IsolatingCut() {
-        delete _allCutsUnion;
-        delete _capMap;
-        delete _graph;
+        delete _all_cuts_union;
+        delete _cap_map;
+        delete _graph_w;
         delete fe;
 
     }
     
     private: 
         // graph pointer to original graph
-        const ListGraph* _ogGraph;
+        const ListGraph* _graph;
         // graph we will find s-t cuts and create edges on
-        ListGraph* _graph;
+        ListGraph* _graph_w;
         CapacityMap* _capacity;
         Node _s, _t;
-        int _maxWeight;
-        int _numEdges;
+        int _max_weight;
+        int last_edge;
 
-
-
-        MinCutEdgeMap* _allCutsUnion;
-        CapacityMap* _capMap;
+        NodeCutMap* _cut_map;
+        EdgeCutMap* _all_cuts_union;
+        EdgeCutMap* st_connections;
+        CapacityMap* _cap_map;
         FilterEdges* fe;
+        FilterEdges* st_graph;
 
-        int minimalCutValue = INT_MAX;
 
+        int _min_cut = INT_MAX;
 
         std::vector<Node>* _subset;
 
@@ -149,34 +159,27 @@ typedef FilterNodes<ListGraph, MinCutMapF> FilterNodes;
         void createStructures() {
 
             // structures for storing results from log|V| maxflow comps
-            _numEdges = (*_ogGraph).maxEdgeId();
-            _graph = new ListGraph;
-            _capMap = createCapactiyMap(*_graph);
-            copyGraph(*_graph, *_capMap, *_ogGraph, *_capacity);
-            _allCutsUnion = TR::createCutEdgeMap(*_graph);
+            _graph_w = new ListGraph;
+            _cap_map = createCapactiyMap(*_graph_w);
+            copyGraph(*_graph_w, *_cap_map, *_graph, *_capacity);
+            _all_cuts_union = TR::createCutEdgeMap(*_graph_w);
+            st_connections = TR::createCutEdgeMap(*_graph_w);
+            _cut_map = TR::createCutMap(*_graph);
 
-            _s = (*_graph).addNode();
-            _t = (*_graph).addNode();
-            fe = TR::createFilterEdges(*_graph, *_allCutsUnion);
+            _s = (*_graph_w).addNode();
+            _t = (*_graph_w).addNode();
+            fe = TR::createFilterEdges(*_graph_w, *_all_cuts_union);
+            st_graph = TR::createFilterEdges(*_graph_w, *st_connections);
+            last_edge = connectST(*_graph_w, _s, _t, _cap_map);
         }
 
-        // removes the edges included in U C_i
-        // induces |V| connected components U_v for each v in subset
-        void removeCuts(ListGraph& trimGraph) {
-            for (EdgeIt e(trimGraph); e != INVALID; ++e) {
-                if ((*_allCutsUnion)[e] == true) {
-                    trimGraph.erase(e);
-                }
-            }
-        }
-
-        void copyGraph(ListGraph& newGraph, CapacityMap& newMap, const ListGraph& oldGraph, CapacityMap& oldMap) {
-            for (int i = 0; i <= oldGraph.maxNodeId(); ++i) {
-                newGraph.addNode();
+        void copyGraph(ListGraph& new_graph, CapacityMap& new_map, const ListGraph& old_graph, CapacityMap& old_map) {
+            for (int i = 0; i <= old_graph.maxNodeId(); ++i) {
+                new_graph.addNode();
             }
 
-            for (ListGraph::EdgeIt e(oldGraph); e != INVALID; ++e) {
-                newMap[newGraph.addEdge(oldGraph.u(e), oldGraph.v(e))] = oldMap[e];
+            for (ListGraph::EdgeIt e(old_graph); e != INVALID; ++e) {
+                new_map[new_graph.addEdge(old_graph.u(e), old_graph.v(e))] = old_map[e];
             }
         }
 
@@ -186,83 +189,43 @@ typedef FilterNodes<ListGraph, MinCutMapF> FilterNodes;
             return val;
         }
 
-        int graphSumWeight(CapacityMap& capacityMap) {
+        int graphSumWeight(CapacityMap& capacity_map) {
             int weight = 0;
-            for (EdgeIt e(*_ogGraph); e != INVALID; ++e) {
-                weight += capacityMap[e];
+            for (EdgeIt e(*_graph); e != INVALID; ++e) {
+                weight += capacity_map[e];
             }
             return weight;
         }
 
         // this finds a min s-t and returns value of the cut. sets cutmap to bools for nodes in/out of cut
-        int findMincuts(ListGraph& graph, Node s, Node t, MinCutMap& cutmap, CapacityMap& cap) {
+        int findSTCut(ListGraph& graph, Node s, Node t, NodeCutMap& cutmap, CapacityMap& cap) {
             Preflow<ListGraph, CapacityMap> pf(graph, cap, s, t);
             pf.run();
             pf.minCutMap(cutmap);
             return pf.flowValue();
         }
 
-        int findContractCuts(FilterNodes& graph, Node s, Node t, MinCutMap& cutmap, CapacityMap& cap) {
-            Preflow<FilterNodes, CapacityMap> pf(graph, cap, s, t);
+        int findSTCut(FilterEdges& graph, Node s, Node t, NodeCutMap& cutmap, CapacityMap& cap) {
+            Preflow<FilterEdges, CapacityMap> pf(graph, cap, s, t);
             pf.run();
             pf.minCutMap(cutmap);
             return pf.flowValue();
         }
 
-        // Uv is a mapping of the connected component of v
-        // contractGraph is a copy of the G/ union(mincuts)
-        // performs contraction on graph that is not reachable from v to speed up maxflow computation
-        Node contractUv(MinCutMap& Uv, ListGraph& contractGraph) {
-            Node firstNode;
-            bool fnSet = false;
-
-            for (NodeIt n(*_ogGraph); n != INVALID; ++n) {
-                if (! Uv[n]) {
-                    if (! fnSet) {
-                        fnSet = true;
-                        firstNode = n;
-                    }
-                    else {
-                        contractGraph.contract(firstNode, n);
-                    }
-                }
-            }
-            if (fnSet) {
-                return firstNode;
-            }
-            throw runtime_error("Contraction failed");
-        }
-
-        void findUv1(const Node& v, MinCutMapF& compMap, const FilterEdges& isolatedCuts) {
+        // performs dfs to set compMap to the nodes reachable from v in G\ U C_i
+        void dfs(const Node& v, NodeCutMapF& compMap, const FilterEdges& isolatedCuts) {
             Dfs<FilterEdges> dfs(isolatedCuts); // could pass this in as arg because it gets called often
             dfs.reachedMap(compMap);
             dfs.run(v);
         }
 
-        // performs dfs to set compMap to the nodes reachable from v in G\ U C_i
-        void findUv(const Node& v, MinCutMap& compMap, const ListGraph& isolatedCuts) {
-            Dfs<ListGraph> dfs(isolatedCuts); // could pass this in as arg because it gets called often
-            dfs.reachedMap(compMap);
-            dfs.run(v);
-        }
-
-        // retrieves the nodeIds from a NodeMap to store cut information
-        void getCutNodeIds(vector<int>& nodeIds, MinCutMap& mincut, const ListGraph& graph) {
-            for (NodeIt n(*_ogGraph); n != INVALID; ++n) {
-                if (mincut[n] == true) {
-                    nodeIds.push_back(graph.id(n));
-                }
-            }
-        }
-
-        void spanComponents(FilterNodes& graph, Node& t, MinCutMapF& component, CapacityMap& capacity) {
+        void spanComponents(FilterNodes& graph, Node& t, NodeCutMapF& component, CapacityMap& capacity) {
             for (typename FilterNodes::NodeIt n(graph); n != INVALID; ++n) {
-                // cout << graph.id(n) << " nidtrim " << (*_graph).id(n) << " nid" << endl;
+                // cout << graph.id(n) << " nidtrim " << (*_graph_w).id(n) << " nid" << endl;
                 if (n != t) {
-                    for (IncEdgeIt e(*_ogGraph, n); e != INVALID; ++e) {
-
-                        if (component[(*_ogGraph).u(e)] != component[(*_ogGraph).v(e)]) {
-                            capacity[(*_graph).addEdge(n, t)] = (*_capacity)[e];  // be careful to avoid duplicates
+                    for (IncEdgeIt e(*_graph, n); e != INVALID; ++e) {
+                        if (component[(*_graph).u(e)] != component[(*_graph).v(e)]) {
+                            capacity[(*_graph_w).addEdge(n, t)] = (*_capacity)[e];  // be careful to avoid duplicates
                         }
                     }
                 }
@@ -270,63 +233,42 @@ typedef FilterNodes<ListGraph, MinCutMapF> FilterNodes;
         }
 
         // G\ U C_i is found, this finds isolating cuts
-        void parallelContractMinCut(FilterEdges& isolatedComponents) {
+        void parallelContractMinCut(FilterEdges& isolated_components) {
             // in parallel loop -- TODO
             // check runtime of this loop
-            MinCutMapF* connectedComponent = TR::createCutMapF(isolatedComponents);
-            FilterNodes* fn = TR::createFilterNodes(*_graph, *connectedComponent);
+            NodeCutMapF* connected_component = TR::createCutMapF(isolated_components);
+            FilterNodes* fn = TR::createFilterNodes(*_graph_w, *connected_component);
                 
             for (const auto& v : *_subset) {
-                // MinCutMapF* connectedComponent = TR::createCutMapF(isolatedComponents);  // O(N)
-                // finds connected component that contains v in graph
-                // that is pruned to exclude the isolating cuts
-                findUv1(v, *connectedComponent, isolatedComponents);  // O(|Uv(n+e)|)
-                // ListGraph cgraph;
-                // ListGraph::EdgeMap<int> cmap(cgraph);
-                // copyGraph(cgraph, cmap, *_ogGraph, *_capacity);  // O(N+E) --> expensive, TODO: improve
-                // // copy a map over
-
-                // // if node is not in the connected component of v, it is contracted in the graph copy
-                // Node t = contractUv(*connectedComponent, cgraph);  // O(N)
-                Node t = (*_graph).addNode();
+                // finds connected component that contains v in pruned graph
+                dfs(v, *connected_component, isolated_components);  // O(|Uv(n+e)|)
+                
+                Node t = (*_graph_w).addNode();
                 fn->status(t, true);
-                spanComponents(*fn, t, *connectedComponent, *_capMap);
+                // replicates graph contraction
+                spanComponents(*fn, t, *connected_component, *_cap_map);
 
-                // returns value of min v-t cut
-                // sets connected component as an node map for the mincut
-                MinCutMap* vtCut = TR::createCutMap(*_ogGraph);
+                Maxflow* pf = TR::createPreflow(*fn, *_cap_map, v, t);
+                pf->run();
+                int dSV = pf->flowValue();
 
-                // int dSV = findMincuts(cgraph, v, t, *vtCut, cmap);  // O(Uv(n)^2*Uv(e)^0.5)
-                int dSV = findContractCuts(*fn, v, t, *vtCut, *_capMap);
-
-                if (dSV < minimalCutValue) {
-                    minimalCutValue = dSV;
-                    // markCutNodes(*vtCut);
+                if (dSV < _min_cut) {
+                    _min_cut = dSV;
+                    (*pf).minCutMap(*_cut_map);
                 }
                 // TODO set the mincut NodeMap
 
 
-                (*_graph).erase(t);
-                delete vtCut;   
+                (*_graph_w).erase(t); 
             }
-            delete connectedComponent;
+            delete connected_component;
             delete fn;
             
         }
 
-        // after finding s-t mincut for ith coloring, need to undo connections for the colorings
-        void undoSTComponents() {
-            for (IncEdgeIt e(*_graph, _s); e!=INVALID; ++e) {
-                (*_graph).erase(e);
-            };
-            for (IncEdgeIt e(*_graph, _t); e!=INVALID; ++e) {
-                (*_graph).erase(e);
-            }
-        }
-
         // after each coloring, need to add edges which have not been included in a cut before
-        void addToCutUnion(MinCutMap& cutmap, ListGraph& graph) {
-            for (EdgeIt e(graph); e != INVALID; ++e) {
+        void addToCutUnion(NodeCutMap& cutmap, FilterEdges& graph) {
+            for (typename FilterEdges::EdgeIt e(graph); e != INVALID; ++e) {
                 Node u = graph.u(e);
                 Node v = graph.v(e);
                 
@@ -334,43 +276,41 @@ typedef FilterNodes<ListGraph, MinCutMapF> FilterNodes;
                     if (u == _s || v == _t) {
                         throw logic_error("DEBUG Edge should not be in cut");
                     }
-                    (*_allCutsUnion)[e] = false;
+                    (*_all_cuts_union)[e] = false;
                 }
             }
         }
 
-        // adds connects one color of edges to source and other to sink
-        void makeSTComponents(int i, ListGraph& graph, Node& s, Node& t, CapacityMap* cap) {
+        int connectST(ListGraph& graph, Node& s, Node& t, CapacityMap* cap){
+            int startId = (*_graph_w).maxEdgeId()+1;
             int len = (*_subset).size();
             for (int j = 1; j <= len; ++j) {
                 Node tmp = (*_subset)[j-1]; // make this and id and map back
                 if (graph.id(tmp) > graph.maxNodeId() || graph.id(tmp) < 0) {
                     throw domain_error("Subset Node not part of graph.");
                 }
-                if (findColor(j, i)) {
-                    (*cap)[graph.addEdge(s, tmp)] = _maxWeight;
-                }
-                else {
-                    (*cap)[graph.addEdge(t, tmp)] = _maxWeight;
-                }
+                (*cap)[graph.addEdge(s, tmp)] = _max_weight;
+                (*cap)[graph.addEdge(t, tmp)] = _max_weight;
             }
+            return startId;
         }
 
-        int _findNumEdges() {
-            int numEdges = 0;
-            for (EdgeIt e(*_graph); e != INVALID; ++e) {
-                ++numEdges;
+        // adds connects one color of edges to source and other to sink
+        void makeSTComponents(int i, int startIndex) {
+            int len = (*_subset).size();
+            for (int j = 1; j <= len; ++j) {
+                bool sflag = findColor(j, i);
+                (*st_connections)[(*_graph_w).edgeFromId(startIndex+2*(j-1))] = sflag;
+                (*st_connections)[(*_graph_w).edgeFromId(startIndex+2*(j-1)+1)] = !sflag;
             }
-            return numEdges;
         }
         
         // removes edges for each of the log|V| calls
         void findIthMinCut(int i) {
-            makeSTComponents(i, *_graph, _s, _t, _capMap);  // O(|V|) (where V is the subset of nodes)
-            MinCutMap* icutmap = TR::createCutMap(*_graph);  // O(N)
-            int _ = findMincuts(*_graph, _s, _t, *icutmap, *_capMap);  // O(N^2*E^(0.5))
-            addToCutUnion(*icutmap, *_graph); // O(E)
-            undoSTComponents(); // O(|V|)
+            makeSTComponents(i, last_edge);  // O(|V|) (where V is the subset of nodes)
+            NodeCutMap* icutmap = TR::createCutMap(*_graph_w);  // O(N)
+            int _ = findSTCut(*st_graph, _s, _t, *icutmap, *_cap_map);  // O(N^2*E^(0.5))
+            addToCutUnion(*icutmap, *st_graph); // O(E)
             delete icutmap;
         }
 
@@ -382,6 +322,7 @@ typedef FilterNodes<ListGraph, MinCutMapF> FilterNodes;
         }
 
         // must call IsolatingCut().init() before .run()
+        // this call calculates the minimum cut
         void run() {
             int len = ceil(log2((*_subset).size()));
 
@@ -389,34 +330,38 @@ typedef FilterNodes<ListGraph, MinCutMapF> FilterNodes;
             for (int i = 0; i < len; ++i) {
                 findIthMinCut(i);  // O(N^2*E^(0.5))
             }
-
-            // copyGraph(*_trimGraph, *_ogGraph);
-            (*_graph).erase(_s);
-            (*_graph).erase(_t);
+            (*_graph_w).erase(_s);
+            (*_graph_w).erase(_t);
             
             parallelContractMinCut(*fe);  // O(|V|*|N^2e^0.5)
         }
 
-        int getMinCut() {
-            return minimalCutValue;
+        int minCutValue() const {
+            return _min_cut;
+        }
+
+        int minCutMap(NodeCutMap& cutmap) const {
+            for (ListGraph::NodeIt n(*_graph); n != INVALID; ++n) {
+                cutmap.set(n, (*_cut_map)[n]);
+            }
+            return minCutValue();
         }
         
         // test methods
         int testIthMinCut(int i) {
-            MinCutMap* icutmap = TR::createCutMap(*_graph);
-            makeSTComponents(i, *_graph, _s, _t, _capMap);
-            int cut = findMincuts(*_graph, _s, _t, *icutmap, *_capMap);
-            undoSTComponents();
+            NodeCutMap* icutmap = TR::createCutMap(*_graph_w);
+            makeSTComponents(i, last_edge);
+            int cut = findSTCut(*_graph_w, _s, _t, *icutmap, *_cap_map);
             delete icutmap;
             return cut;
         }
 
-        int testFindMincuts(ListGraph& graph, Node s, Node t, MinCutMap& cutmap) {
-            return findMincuts(graph, s, t, cutmap, *_capacity);
+        int testFindMincuts(ListGraph& graph, Node s, Node t, NodeCutMap& cutmap) {
+            return findSTCut(graph, s, t, cutmap, *_capacity);
         }
 
         int getMaxWeight() {
-            return _maxWeight;
+            return _max_weight;
         }
 
         void runPhase1() {
@@ -424,8 +369,9 @@ typedef FilterNodes<ListGraph, MinCutMapF> FilterNodes;
             for (int i = 0; i < len; ++i) {
                 findIthMinCut(i);
             }
-            (*_graph).erase(_s);
-            (*_graph).erase(_t);
+            // remove auxilliary nodes before finding mincut in graph
+            (*_graph_w).erase(_s);
+            (*_graph_w).erase(_t);
         }
 
         // must call in order init(), runPhase1(), then runPhase2()
@@ -434,23 +380,8 @@ typedef FilterNodes<ListGraph, MinCutMapF> FilterNodes;
         }
 
         // must call in order init(), runPhase1()
-        void runFindUv(Node& v, MinCutMap& connectedComponent) {
-            findUv(v, connectedComponent, *_graph);
-        }
-
-        void runFindUv1(Node& v, MinCutMapF& connectedComponent) {
-            findUv1(v, connectedComponent, *fe);
-        }
-
-        std::vector<int> runContractAndCut(Node& v, ListGraph& cgraph, MinCutMap& connectedComponent) {
-            // this is to validate the S_v is properly computed for any v
-            Node t = contractUv(*connectedComponent, cgraph);
-
-            // sets connectedComponents to the edges on the v side of the cut in contracted graph
-            int dSV = findMincuts(cgraph, v, t, *connectedComponent);
-            std::vector<int> nIds;
-            getCutNodeIds(nIds, *connectedComponent, *_ogGraph); 
-            return nIds;
+        void runFindUv(Node& v, NodeCutMapF& connected_component) {
+            dfs(v, connected_component, *fe);
         }
 
         FilterEdges& getFilterSubset() {
